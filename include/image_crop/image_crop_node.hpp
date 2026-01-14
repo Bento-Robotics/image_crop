@@ -1,3 +1,4 @@
+// Copyright (c) 2026, Bento Robotics
 // Copyright (c) 2008, Willow Garage, Inc.
 // All rights reserved.
 //
@@ -33,14 +34,8 @@
 #ifndef IMAGE_CROP__IMAGE_CROP_NODE_HPP_
 #define IMAGE_CROP__IMAGE_CROP_NODE_HPP_
 
-#include <memory>
 #include <string>
 
-#include "tf2_ros/buffer.h"
-#include "tf2_ros/transform_listener.h"
-#include "tf2_ros/transform_broadcaster.h"
-
-#include <geometry_msgs/msg/vector3_stamped.hpp>
 #include <image_transport/image_transport.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
@@ -53,16 +48,10 @@ namespace image_crop
 
 struct ImageCropConfig
 {
-  std::string target_frame_id;
-  double target_x;
-  double target_y;
-  double target_z;
-  std::string source_frame_id;
-  double source_x;
-  double source_y;
-  double source_z;
-  std::string output_frame_id;
-  std::string input_frame_id;
+  int target_height;
+  int target_width;
+  int crop_start_x;
+  int crop_start_y;
   bool use_camera_info;
   double max_angular_rate;
   double output_image_size;
@@ -79,16 +68,10 @@ private:
     const sensor_msgs::msg::Image::ConstSharedPtr & msg,
     const sensor_msgs::msg::CameraInfo::ConstSharedPtr & cam_info);
   void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr & msg);
-  void do_work(
-    const sensor_msgs::msg::Image::ConstSharedPtr & msg,
-    const std::string input_frame_from_msg);
+  void do_work(const sensor_msgs::msg::Image::ConstSharedPtr & msg);
   void onInit();
 
   rclcpp::Node::OnSetParametersCallbackHandle::SharedPtr on_set_parameters_callback_handle_;
-
-  std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
-  std::shared_ptr<tf2_ros::TransformListener> tf_sub_;
-  std::shared_ptr<tf2_ros::TransformBroadcaster> tf_pub_;
 
   image_crop::ImageCropConfig config_;
 
@@ -98,11 +81,6 @@ private:
   image_transport::Subscriber img_sub_;
   image_transport::CameraSubscriber cam_sub_;
 
-  geometry_msgs::msg::Vector3Stamped target_vector_;
-  geometry_msgs::msg::Vector3Stamped source_vector_;
-
-  double angle_;
-  tf2::TimePoint prev_stamp_;
 };
 }  // namespace image_crop
 

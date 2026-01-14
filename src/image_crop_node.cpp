@@ -40,30 +40,16 @@
 
 #include "image_crop/image_crop_node.hpp"
 
-#include <cmath>
-#include <functional>
-#include <memory>
-#include <string>
-#include <vector>
-
 #include "cv_bridge/cv_bridge.hpp"
-#include "tf2/LinearMath/Vector3.h"
-#include "tf2/LinearMath/Quaternion.h"
-#include "tf2_ros/buffer.h"
-#include "tf2_ros/transform_listener.h"
-#include "tf2_ros/transform_broadcaster.h"
+#include "sensor_msgs/msg/image.hpp"
 
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/types.hpp>
-#include <opencv2/imgproc.hpp>
 
-#include <geometry_msgs/msg/transform_stamped.hpp>
-#include <geometry_msgs/msg/vector3_stamped.hpp>
 #include <image_transport/image_transport.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <sensor_msgs/msg/image.hpp>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 namespace image_crop
 {
@@ -71,60 +57,39 @@ namespace image_crop
 ImageCropNode::ImageCropNode(const rclcpp::NodeOptions & options)
 : rclcpp::Node("ImageCropNode", options)
 {
+  // Set runtime parameters BEFORE add_on_set_parameters_callback
+  config_.target_height = this->declare_parameter("target_height", 400);
+  config_.target_width = this->declare_parameter("target_width", 800);
+  config_.crop_start_x = this->declare_parameter("crop_start_x", 100);
+  config_.crop_start_y = this->declare_parameter("crop_start_y", 100);
+
   auto reconfigureCallback =
     [this](std::vector<rclcpp::Parameter> parameters) -> rcl_interfaces::msg::SetParametersResult
     {
       auto result = rcl_interfaces::msg::SetParametersResult();
       result.successful = true;
       for (auto parameter : parameters) {
-        if (parameter.get_name() == "target_x") {
-          config_.target_x = parameter.as_double();
-          RCLCPP_INFO(get_logger(), "Reset target_x as '%lf'", config_.target_x);
-        } else if (parameter.get_name() == "target_y") {
-          config_.target_y = parameter.as_double();
-          RCLCPP_INFO(get_logger(), "Reset target_y as '%lf'", config_.target_y);
-        } else if (parameter.get_name() == "target_z") {
-          config_.target_z = parameter.as_double();
-          RCLCPP_INFO(get_logger(), "Reset target_z as '%lf'", config_.target_z);
-        } else if (parameter.get_name() == "source_x") {
-          config_.source_x = parameter.as_double();
-          RCLCPP_INFO(get_logger(), "Reset source_x as '%lf'", config_.source_x);
-        } else if (parameter.get_name() == "source_y") {
-          config_.source_y = parameter.as_double();
-          RCLCPP_INFO(get_logger(), "Reset source_y as '%lf'", config_.source_y);
-        } else if (parameter.get_name() == "source_z") {
-          config_.source_z = parameter.as_double();
-          RCLCPP_INFO(get_logger(), "Reset source_z as '%lf'", config_.source_z);
+        if (parameter.get_name() == "target_height") {
+          config_.target_width = parameter.as_int();
+          RCLCPP_INFO(get_logger(), "Set target_height to '%i'", config_.target_height);
+        } else if (parameter.get_name() == "target_width") {
+          config_.target_height = parameter.as_int();
+          RCLCPP_INFO(get_logger(), "Set target_width to '%i'", config_.target_width);
+        }else if (parameter.get_name() == "crop_start_x") {
+          config_.crop_start_x = parameter.as_int();
+          RCLCPP_INFO(get_logger(), "Set crop_start_x to '%i'", config_.crop_start_x);
+        } else if (parameter.get_name() == "crop_start_y") {
+          config_.crop_start_y = parameter.as_int();
+          RCLCPP_INFO(get_logger(), "Set crop_start_y to '%i'", config_.crop_start_y);
         }
       }
-
-      target_vector_.vector.x = config_.target_x;
-      target_vector_.vector.y = config_.target_y;
-      target_vector_.vector.z = config_.target_z;
-
-      source_vector_.vector.x = config_.source_x;
-      source_vector_.vector.y = config_.source_y;
-      source_vector_.vector.z = config_.source_z;
 
       return result;
     };
   on_set_parameters_callback_handle_ = this->add_on_set_parameters_callback(reconfigureCallback);
 
-  // Set parameters AFTER add_on_set_parameters_callback
-  config_.target_frame_id = this->declare_parameter("target_frame_id", std::string(""));
-  config_.target_x = this->declare_parameter("target_x", 0.0);
-  config_.target_y = this->declare_parameter("target_y", 0.0);
-  config_.target_z = this->declare_parameter("target_z", 1.0);
-
-  config_.source_frame_id = this->declare_parameter("source_frame_id", std::string(""));
-  config_.source_x = this->declare_parameter("source_x", 0.0);
-  config_.source_y = this->declare_parameter("source_y", -1.0);
-  config_.source_z = this->declare_parameter("source_z", 0.0);
-
-  config_.output_frame_id = this->declare_parameter("output_frame_id", std::string(""));
-  config_.input_frame_id = this->declare_parameter("input_frame_id", std::string(""));
+  // Set other parameters AFTER add_on_set_parameters_callback
   config_.use_camera_info = this->declare_parameter("use_camera_info", true);
-  config_.max_angular_rate = this->declare_parameter("max_angular_rate", 10.0);
   config_.output_image_size = this->declare_parameter("output_image_size", 2.0);
 
   // TransportHints does not actually declare the parameter
@@ -133,156 +98,65 @@ ImageCropNode::ImageCropNode(const rclcpp::NodeOptions & options)
   onInit();
 }
 
-const std::string ImageCropNode::frameWithDefault(
-  const std::string & frame,
-  const std::string & image_frame)
-{
-  if (frame.empty()) {
-    return image_frame;
-  }
-  return frame;
-}
+// const std::string ImageCropNode::frameWithDefault(
+//   const std::string & frame,
+//   const std::string & image_frame)
+// {
+//   if (frame.empty()) {
+//     return image_frame;
+//   }
+//   return frame;
+// }
 
 void ImageCropNode::imageCallbackWithInfo(
   const sensor_msgs::msg::Image::ConstSharedPtr & msg,
   const sensor_msgs::msg::CameraInfo::ConstSharedPtr & cam_info)
 {
-  do_work(msg, cam_info->header.frame_id);
+  (void) cam_info;
+  do_work(msg);
 }
 
 void ImageCropNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr & msg)
 {
-  do_work(msg, msg->header.frame_id);
+  do_work(msg); 
 }
 
-void ImageCropNode::do_work(
-  const sensor_msgs::msg::Image::ConstSharedPtr & msg,
-  const std::string input_frame_from_msg)
-{
-  try {
-    std::string input_frame_id = frameWithDefault(config_.input_frame_id, input_frame_from_msg);
-    std::string target_frame_id = frameWithDefault(config_.target_frame_id, input_frame_from_msg);
-    std::string source_frame_id = frameWithDefault(config_.source_frame_id, input_frame_from_msg);
-
-    // Transform the target vector into the image frame.
-    target_vector_.header.stamp = msg->header.stamp;
-    target_vector_.header.frame_id = target_frame_id;
-    geometry_msgs::msg::Vector3Stamped target_vector_transformed;
-    tf2::TimePoint tf2_time = tf2_ros::fromMsg(msg->header.stamp);
-
-    geometry_msgs::msg::TransformStamped transform = tf_buffer_->lookupTransform(
-      target_frame_id, input_frame_id, tf2_time, tf2_time - prev_stamp_);
-    tf2::doTransform(target_vector_, target_vector_transformed, transform);
-
-    // Transform the source vector into the image frame.
-    source_vector_.header.stamp = msg->header.stamp;
-    source_vector_.header.frame_id = source_frame_id;
-    geometry_msgs::msg::Vector3Stamped source_vector_transformed;
-    transform = tf_buffer_->lookupTransform(
-      source_frame_id, input_frame_id, tf2_time, tf2_time - prev_stamp_);
-    tf2::doTransform(source_vector_, source_vector_transformed, transform);
-
-    // Calculate the angle of the rotation.
-    double angle = angle_;
-    if ((target_vector_transformed.vector.x != 0 || target_vector_transformed.vector.y != 0) &&
-      (source_vector_transformed.vector.x != 0 || source_vector_transformed.vector.y != 0))
-    {
-      angle = atan2(target_vector_transformed.vector.y, target_vector_transformed.vector.x);
-      angle -= atan2(source_vector_transformed.vector.y, source_vector_transformed.vector.x);
-    }
-
-    // Rate limit the rotation.
-    if (config_.max_angular_rate == 0) {
-      angle_ = angle;
-    } else {
-      double delta = fmod(angle - angle_, 2.0 * M_PI);
-      if (delta > M_PI) {
-        delta -= 2.0 * M_PI;
-      } else if (delta < -M_PI) {
-        delta += 2.0 * M_PI;
-      }
-
-      double max_delta = config_.max_angular_rate *
-        (tf2_ros::timeToSec(msg->header.stamp) - tf2::timeToSec(prev_stamp_));
-      if (delta > max_delta) {
-        delta = max_delta;
-      } else if (delta < -max_delta) {
-        delta = -max_delta;
-      }
-
-      angle_ += delta;
-    }
-    angle_ = fmod(angle_, 2.0 * M_PI);
-  } catch (const tf2::TransformException & e) {
-    RCLCPP_ERROR(get_logger(), "Transform error: %s", e.what());
+void ImageCropNode::do_work(const sensor_msgs::msg::Image::ConstSharedPtr & msg)
+{  
+  if (config_.crop_start_y < 0 || (uint) abs(config_.crop_start_y + config_.target_height) > msg->height ||
+      config_.crop_start_x < 0 || (uint) abs(config_.crop_start_x + config_.target_width)  > msg->width  ){
+        RCLCPP_ERROR(get_logger(), "Crop startpoint at (%i, %i) is invalid", config_.crop_start_x, config_.crop_start_y);
+        return;
   }
-
-  // Publish the transform.
-  geometry_msgs::msg::TransformStamped transform;
-  transform.transform.translation.x = 0;
-  transform.transform.translation.y = 0;
-  transform.transform.translation.z = 0;
-  transform.transform.rotation = tf2::toMsg(tf2::Quaternion(tf2::Vector3(0.0, 0.0, 1.0), angle_));
-  transform.header.frame_id = msg->header.frame_id;
-  transform.child_frame_id = frameWithDefault(
-    config_.output_frame_id, msg->header.frame_id + "_rotated");
-  transform.header.stamp = msg->header.stamp;
-
-  if (tf_pub_) {
-    tf_pub_->sendTransform(transform);
+  if (config_.target_height <= 0 ||
+      config_.target_width  <= 0 ){ 
+        RCLCPP_ERROR(get_logger(), "Crop size of %i x %i is invalid", config_.target_width, config_.target_height);
+        return;
   }
-
-  // Transform the image.
   try {
     // Convert the image into something opencv can handle.
     cv::Mat in_image = cv_bridge::toCvShare(msg, msg->encoding)->image;
 
-    // Compute the output image size.
-    int max_dim = in_image.cols > in_image.rows ? in_image.cols : in_image.rows;
-    int min_dim = in_image.cols < in_image.rows ? in_image.cols : in_image.rows;
-    int noblack_dim = min_dim / sqrt(2);
-    int diag_dim = sqrt(in_image.cols * in_image.cols + in_image.rows * in_image.rows);
-    int out_size;
-    // diag_dim repeated to simplify limit case.
-    int candidates[] = {noblack_dim, min_dim, max_dim, diag_dim, diag_dim};
-    int step = config_.output_image_size;
-    out_size = candidates[step] + (candidates[step + 1] - candidates[step]) *
-      (config_.output_image_size - step);
-
-    // Compute the rotation matrix.
-    cv::Mat rot_matrix = cv::getRotationMatrix2D(
-      cv::Point2f(in_image.cols / 2.0, in_image.rows / 2.0), 180 * angle_ / M_PI, 1);
-    cv::Mat translation = rot_matrix.col(2);
-    rot_matrix.at<double>(0, 2) += (out_size - in_image.cols) / 2.0;
-    rot_matrix.at<double>(1, 2) += (out_size - in_image.rows) / 2.0;
-
-    // Do the rotation
-    cv::Mat out_image;
-    cv::warpAffine(in_image, out_image, rot_matrix, cv::Size(out_size, out_size));
+    // Do the crop
+    cv::Rect crop_region(config_.crop_start_x, config_.crop_start_y, config_.target_width, config_.target_height);
+    cv::Mat out_image = in_image(crop_region);
 
     // Publish the image.
     sensor_msgs::msg::Image::SharedPtr out_img =
-      cv_bridge::CvImage(msg->header, msg->encoding, out_image).toImageMsg();
-    out_img->header.frame_id = transform.child_frame_id;
+    cv_bridge::CvImage(msg->header, msg->encoding, out_image).toImageMsg();
     img_pub_.publish(out_img);
+
   } catch (const cv::Exception & e) {
     RCLCPP_ERROR(
       get_logger(),
       "Image processing error: %s %s %s %i",
       e.err.c_str(), e.func.c_str(), e.file.c_str(), e.line);
   }
-
-  prev_stamp_ = tf2_ros::fromMsg(msg->header.stamp);
 }
 
 void ImageCropNode::onInit()
 {
-  angle_ = 0;
-  prev_stamp_ = tf2::get_now();
   rclcpp::Clock::SharedPtr clock = this->get_clock();
-  tf_buffer_ = std::make_shared<tf2_ros::Buffer>(clock);
-  tf_sub_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
-  tf_pub_ = std::make_shared<tf2_ros::TransformBroadcaster>(*this);
 
   // Create publisher with connect callback
   rclcpp::PublisherOptions pub_options;
@@ -313,7 +187,7 @@ void ImageCropNode::onInit()
         // This will check image_transport parameter to get proper transport
         image_transport::TransportHints transport_hint(this, "raw");
 
-        if (config_.use_camera_info && config_.input_frame_id.empty()) {
+        if (config_.use_camera_info) {
           auto custom_qos = rmw_qos_profile_system_default;
           custom_qos.depth = 3;
           cam_sub_ = image_transport::create_camera_subscription(
@@ -340,7 +214,7 @@ void ImageCropNode::onInit()
   // For compressed topics to remap appropriately, we need to pass a
   // fully expanded and remapped topic name to image_transport
   auto node_base = this->get_node_base_interface();
-  std::string topic = node_base->resolve_topic_or_service_name("rotated/image", false);
+  std::string topic = node_base->resolve_topic_or_service_name("cropped/out", false);
 
   // Allow overriding QoS settings (history, depth, reliability)
   pub_options.qos_overriding_options = rclcpp::QosOverridingOptions::with_default_policies();

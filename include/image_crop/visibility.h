@@ -1,5 +1,4 @@
 // Copyright (c) 2008, Willow Garage, Inc.
-// Copyright (c) 2026, Bento Robotics
 // All rights reserved.
 //
 // Software License Agreement (BSD License 2.0)

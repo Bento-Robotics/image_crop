@@ -32,7 +32,6 @@
 // POSSIBILITY OF SUCH DAMAGE.
 
 #include "image_crop/image_crop_node.hpp"
-#include <memory>
 
 int main(int argc, char ** argv)
 {

@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.5)
-project(image_rotate)
+cmake_minimum_required(VERSION 3.30)
+project(image_crop)
 
 # Default to C++14
 if(NOT CMAKE_CXX_STANDARD)
@@ -20,16 +20,9 @@ target_link_libraries(${PROJECT_NAME} ${OpenCV_LIBRARIES})
 rclcpp_components_register_nodes(${PROJECT_NAME} "${PROJECT_NAME}::ImageCropNode")
 set(node_plugins "${node_plugins}${PROJECT_NAME}::ImageCropNode;$<TARGET_FILE:ImageCropNode>\n")
 
-ament_auto_add_executable(image_rotate_bin src/image_crop.cpp)
-set_target_properties(image_rotate_bin PROPERTIES OUTPUT_NAME ${PROJECT_NAME})
-target_link_libraries(image_rotate_bin ${OpenCV_LIBRARIES} ${PROJECT_NAME})
-
-# ament_auto_add_library(image_flip SHARED src/image_flip.cpp)
-# target_link_libraries(image_flip ${OpenCV_LIBRARIES})
-# rclcpp_components_register_node(image_flip
-#   PLUGIN "${PROJECT_NAME}::ImageFlipNode"
-#   EXECUTABLE image_flip_node
-# )
+ament_auto_add_executable(image_crop_bin src/image_crop.cpp)
+set_target_properties(image_crop_bin PROPERTIES OUTPUT_NAME ${PROJECT_NAME})
+target_link_libraries(image_crop_bin ${OpenCV_LIBRARIES} ${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
