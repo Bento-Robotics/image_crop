@@ -89,7 +89,7 @@ ImageCropNode::ImageCropNode(const rclcpp::NodeOptions & options)
   on_set_parameters_callback_handle_ = this->add_on_set_parameters_callback(reconfigureCallback);
 
   // Set other parameters AFTER add_on_set_parameters_callback
-  config_.use_camera_info = this->declare_parameter("use_camera_info", true);
+  config_.use_camera_info = this->declare_parameter("use_camera_info", false);
   config_.output_image_size = this->declare_parameter("output_image_size", 2.0);
 
   // TransportHints does not actually declare the parameter
@@ -98,22 +98,12 @@ ImageCropNode::ImageCropNode(const rclcpp::NodeOptions & options)
   onInit();
 }
 
-// const std::string ImageCropNode::frameWithDefault(
-//   const std::string & frame,
-//   const std::string & image_frame)
-// {
-//   if (frame.empty()) {
-//     return image_frame;
-//   }
-//   return frame;
-// }
-
 void ImageCropNode::imageCallbackWithInfo(
   const sensor_msgs::msg::Image::ConstSharedPtr & msg,
   const sensor_msgs::msg::CameraInfo::ConstSharedPtr & cam_info)
 {
-  (void) cam_info;
-  do_work(msg);
+  RCLCPP_INFO(get_logger(), "imagecallbackwinfo");
+  do_work(msg, cam_info);
 }
 
 void ImageCropNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr & msg)
@@ -121,7 +111,7 @@ void ImageCropNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr 
   do_work(msg); 
 }
 
-void ImageCropNode::do_work(const sensor_msgs::msg::Image::ConstSharedPtr & msg)
+void ImageCropNode::do_work(const sensor_msgs::msg::Image::ConstSharedPtr & msg, const sensor_msgs::msg::CameraInfo::ConstSharedPtr & cam_info)
 {  
   if (config_.crop_start_y < 0 || (uint) abs(config_.crop_start_y + config_.target_height) > msg->height ||
       config_.crop_start_x < 0 || (uint) abs(config_.crop_start_x + config_.target_width)  > msg->width  ){
@@ -141,11 +131,19 @@ void ImageCropNode::do_work(const sensor_msgs::msg::Image::ConstSharedPtr & msg)
     cv::Rect crop_region(config_.crop_start_x, config_.crop_start_y, config_.target_width, config_.target_height);
     cv::Mat out_image = in_image(crop_region);
 
-    // Publish the image.
+    // Convert the message back to ROS
     sensor_msgs::msg::Image::SharedPtr out_img =
     cv_bridge::CvImage(msg->header, msg->encoding, out_image).toImageMsg();
-    img_pub_.publish(out_img);
-
+    
+    // Publish the image.
+    if (config_.use_camera_info) {
+      sensor_msgs::msg::CameraInfo c_info = *cam_info;
+      c_info.height = config_.target_height;
+      c_info.width = config_.target_width;
+      cam_pub_.publish(out_img, cam_info);
+    } else { // publish only image
+      img_pub_.publish(out_img);
+    }
   } catch (const cv::Exception & e) {
     RCLCPP_ERROR(
       get_logger(),
@@ -163,8 +161,8 @@ void ImageCropNode::onInit()
   pub_options.event_callbacks.matched_callback =
     [this](rclcpp::MatchedInfo &)
     {
-      if (img_pub_.getNumSubscribers() == 0) {
-        RCLCPP_DEBUG(get_logger(), "Unsubscribing from image topic.");
+      if ( 0 == (config_.use_camera_info ? cam_pub_.getNumSubscribers() : img_pub_.getNumSubscribers()) ) {
+        RCLCPP_INFO(get_logger(), "Number of subscribers is zero. Unsubscribing from image topic.");
         img_sub_.shutdown();
         cam_sub_.shutdown();
       } else {
@@ -198,13 +196,14 @@ void ImageCropNode::onInit()
               std::placeholders::_1, std::placeholders::_2),
             transport_hint.getTransport(),
             custom_qos);
-        } else {
+        } else { // image only
           auto custom_qos = rmw_qos_profile_system_default;
           custom_qos.depth = 3;
           img_sub_ = image_transport::create_subscription(
             this,
             topic_name,
-            std::bind(&ImageCropNode::imageCallback, this, std::placeholders::_1),
+            std::bind(
+              &ImageCropNode::imageCallback, this, std::placeholders::_1),
             transport_hint.getTransport(),
             custom_qos);
         }
@@ -218,7 +217,10 @@ void ImageCropNode::onInit()
 
   // Allow overriding QoS settings (history, depth, reliability)
   pub_options.qos_overriding_options = rclcpp::QosOverridingOptions::with_default_policies();
-  img_pub_ = image_transport::create_publisher(this, topic, rmw_qos_profile_default, pub_options);
+    if (config_.use_camera_info)
+      cam_pub_ = image_transport::create_camera_publisher(this, topic, rmw_qos_profile_default, pub_options);
+    else
+      img_pub_ = image_transport::create_publisher(this, topic, rmw_qos_profile_default, pub_options);
 }
 
 }  // namespace image_crop

@@ -63,12 +63,13 @@ public:
   IMAGE_CROP_PUBLIC ImageCropNode(const rclcpp::NodeOptions & options);
 
 private:
-  const std::string frameWithDefault(const std::string & frame, const std::string & image_frame);
   void imageCallbackWithInfo(
     const sensor_msgs::msg::Image::ConstSharedPtr & msg,
     const sensor_msgs::msg::CameraInfo::ConstSharedPtr & cam_info);
   void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr & msg);
-  void do_work(const sensor_msgs::msg::Image::ConstSharedPtr & msg);
+  void do_work(
+      const sensor_msgs::msg::Image::ConstSharedPtr & msg,
+      const sensor_msgs::msg::CameraInfo::ConstSharedPtr & cam_info = nullptr);
   void onInit();
 
   rclcpp::Node::OnSetParametersCallbackHandle::SharedPtr on_set_parameters_callback_handle_;
@@ -76,6 +77,7 @@ private:
   image_crop::ImageCropConfig config_;
 
   image_transport::Publisher img_pub_;
+  image_transport::CameraPublisher cam_pub_;
 
   // Subscriber - only one is used at a time - depends on use_camera_info
   image_transport::Subscriber img_sub_;
